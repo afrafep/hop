@@ -1,0 +1,735 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>-1</pipeline_status>
+    <parameters/>
+    <name>New pipeline</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <created_user>-</created_user>
+    <modified_user>-</modified_user>
+    <created_date>2026/06/18 09:38:41.812</created_date>
+    <modified_date>2026/06/18 09:38:41.812</modified_date>
+  </info>
+  <transform>
+    <type>TableInput</type>
+    <name>export_fato_despesa_assist_cidade_sexo_faixa_etaria</name>
+    <sql>WITH base_despesa AS (
+    SELECT 
+        cd_usuario,
+        nu_cgc_cpf,
+        nu_guia_atendimento,
+        vl_procedimento_p
+    FROM bi.tb_consolidacao_despesa
+    WHERE dt_producao >= TRUNC(ADD_MONTHS(SYSDATE, -12), 'MM')
+      AND cd_plano IN (50, 60, 9999)
+      AND fl_tipo_autorizacao &lt;&gt; 'R'
+      AND vl_procedimento_p > 0
+),
+base_cadastro AS (
+    SELECT 
+        b.cd_beneficiario,
+        NVL(UPPER(b.nm_cidade), 'NÃO INFORMADO') AS cidade,
+        NVL(UPPER(b.cd_uf), 'XX') AS uf,
+        b.fl_sexo,
+        TRUNC(MONTHS_BETWEEN(TRUNC(SYSDATE), b.dt_nascimento) / 12) AS idade
+    FROM bi.bi_cadastro_beneficiario b
+),
+base_geografica_idade AS (
+    SELECT 
+        CASE 
+        	WHEN c.cidade = 'JOÃO PESSOA' THEN 'JOAO PESSOA'
+        	ELSE c.cidade
+        END AS cidade,
+        c.uf,
+        c.fl_sexo,
+        c.cd_beneficiario,
+        CASE 
+            WHEN c.idade BETWEEN 0 AND 9   THEN '0 - 9 crianças'
+            WHEN c.idade BETWEEN 10 AND 19 THEN '10 - 19 Adolescentes'
+            WHEN c.idade BETWEEN 20 AND 29 THEN '20 - 29 Adultos Faixa I'
+            WHEN c.idade BETWEEN 30 AND 39 THEN '30 - 39 Adultos Faixa II'
+            WHEN c.idade BETWEEN 40 AND 49 THEN '40 - 49 Adultos Faixa III'
+            WHEN c.idade BETWEEN 50 AND 59 THEN '50 - 59 Adultos Faixa IV'
+            WHEN c.idade BETWEEN 60 AND 69 THEN '60 - 69 Idoso Faixa I'
+            WHEN c.idade BETWEEN 70 AND 79 THEN '70 - 79 Idoso Faixa II'
+            WHEN c.idade BETWEEN 80 AND 89 THEN '80 - 89 Idoso Faixa III'
+            WHEN c.idade BETWEEN 90 AND 99 THEN '90 - 99 Idoso Faixa IV'
+            ELSE '>= 100 Idoso Faixa V'
+        END AS ds_faixa_etaria,
+        d.nu_cgc_cpf,
+        d.nu_guia_atendimento,
+        d.vl_procedimento_p
+    FROM base_despesa d
+    INNER JOIN base_cadastro c 
+        ON d.cd_usuario = c.cd_beneficiario
+),
+resultado_agrupado AS (
+    SELECT
+        cidade,
+        uf,
+        ds_faixa_etaria,
+        fl_sexo,
+        COUNT(DISTINCT cd_beneficiario) AS benef_univ_afetados,
+        COUNT(DISTINCT nu_guia_atendimento) AS qtd_guias_atendimentos,
+        SUM(vl_procedimento_p) AS custo_total,
+        ROUND(SUM(vl_procedimento_p) / NULLIF(COUNT(DISTINCT nu_guia_atendimento), 0), 2) AS custo_medio_evento
+    FROM base_geografica_idade
+    GROUP BY
+        cidade,
+        uf,
+        ds_faixa_etaria,
+        fl_sexo
+),
+resultado_com_custo_cidade AS (
+    SELECT
+        cidade,
+        uf,
+        ds_faixa_etaria,
+        fl_sexo,
+        benef_univ_afetados,
+        qtd_guias_atendimentos,
+        custo_total,
+        custo_medio_evento --, SUM(custo_total) OVER(PARTITION BY cidade, uf) AS custo_total_da_cidade
+    FROM resultado_agrupado
+)
+SELECT
+    cidade,
+    uf,
+    ds_faixa_etaria,
+    fl_sexo,
+    benef_univ_afetados,
+    qtd_guias_atendimentos,
+    ROUND(custo_total,2) AS custo_total,
+    custo_medio_evento 
+FROM resultado_com_custo_cidade
+ORDER BY 
+     custo_total DESC,
+	 ds_faixa_etaria ASC,
+	 fl_sexo ASC,
+	 cidade ASC,
+	 uf ASC</sql>
+    <limit>0</limit>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <connection>Cn_Oracle_Afrafep</connection>
+    <lookup/>
+    <sql_from_file/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>304</xloc>
+      <yloc>48</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableOutput</type>
+    <name>fato_despesa_assist_cidade_sexo_faixa_etaria</name>
+    <connection>cn_dw_afrafep</connection>
+    <schema>public</schema>
+    <table>fato_despesa_assist_cidade_sexo_faixa_etaria</table>
+    <commit>1000</commit>
+    <truncate>Y</truncate>
+    <only_when_have_rows>N</only_when_have_rows>
+    <ignore_errors>N</ignore_errors>
+    <use_batch>Y</use_batch>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_field/>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <tablename_in_table>Y</tablename_in_table>
+    <return_keys>N</return_keys>
+    <return_field/>
+    <specify_fields>Y</specify_fields>
+    <auto_update_table_structure>N</auto_update_table_structure>
+    <always_drop_and_recreate>N</always_drop_and_recreate>
+    <add_columns>N</add_columns>
+    <drop_columns>N</drop_columns>
+    <change_column_types>N</change_column_types>
+    <fields>
+      <field>
+        <stream_name>CIDADE</stream_name>
+        <column_name>CIDADE</column_name>
+      </field>
+      <field>
+        <stream_name>UF</stream_name>
+        <column_name>UF</column_name>
+      </field>
+      <field>
+        <stream_name>DS_FAIXA_ETARIA</stream_name>
+        <column_name>DS_FAIXA_ETARIA</column_name>
+      </field>
+      <field>
+        <stream_name>FL_SEXO</stream_name>
+        <column_name>FL_SEXO</column_name>
+      </field>
+      <field>
+        <stream_name>BENEF_UNIV_AFETADOS</stream_name>
+        <column_name>BENEF_UNIV_AFETADOS</column_name>
+      </field>
+      <field>
+        <stream_name>QTD_GUIAS_ATENDIMENTOS</stream_name>
+        <column_name>QTD_GUIAS_ATENDIMENTOS</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TOTAL</stream_name>
+        <column_name>CUSTO_TOTAL</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_MEDIO_EVENTO</stream_name>
+        <column_name>CUSTO_MEDIO_EVENTO</column_name>
+      </field>
+    </fields>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>672</xloc>
+      <yloc>48</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableInput</type>
+    <name>export_fato_despesa_assist_cidade_sexo</name>
+    <sql>WITH base_despesa AS (
+    SELECT 
+        cd_usuario,
+        fl_sexo,
+        nu_cgc_cpf,
+        nu_guia_atendimento,
+        vl_procedimento_p
+    FROM bi.tb_consolidacao_despesa
+    WHERE dt_producao >= TRUNC(ADD_MONTHS(SYSDATE, -12), 'MM')
+      AND cd_plano IN (50, 60, 9999)
+      AND fl_tipo_autorizacao &lt;&gt; 'R'
+      AND vl_procedimento_p > 0
+),
+base_geografica AS (
+    SELECT 
+        b.nm_cidade,
+        b.cd_beneficiario,
+        b.cd_uf,
+        d.fl_sexo,
+        d.nu_cgc_cpf,
+        d.nu_guia_atendimento,
+        d.vl_procedimento_p
+    FROM base_despesa d
+    INNER JOIN bi.bi_cadastro_beneficiario b 
+        ON d.cd_usuario = b.cd_beneficiario
+	WHERE b.ds_situacao_beneficiario = 'ATIVO'
+	AND b.cd_plano_interno IN (50,60)
+),
+resultado_agrupado AS (
+    SELECT
+        NVL(UPPER(nm_cidade), 'NÃO INFORMADO') AS cidade,
+        NVL(UPPER(cd_uf), 'XX') AS uf,
+        fl_sexo,
+        COUNT(DISTINCT cd_beneficiario) AS beneficiarios_univ_afetados,
+        COUNT(nu_guia_atendimento) AS qtd_guias_atendimentos,
+        SUM(vl_procedimento_p) AS custo_total,
+        ROUND(SUM(vl_procedimento_p) / NULLIF(COUNT(DISTINCT nu_guia_atendimento), 0), 2) AS custo_medio_evento
+    FROM base_geografica
+    GROUP BY
+        nm_cidade,
+        cd_uf,
+        fl_sexo
+),
+resultado_com_custo_cidade AS (
+    SELECT
+        cidade,
+        uf,
+        fl_sexo,
+        beneficiarios_univ_afetados,
+        qtd_guias_atendimentos,
+        custo_total,
+        custo_medio_evento,
+        SUM(custo_total) OVER(PARTITION BY cidade, uf) AS custo_total_da_cidade
+    FROM resultado_agrupado
+)
+SELECT
+    cidade,
+    uf,
+    fl_sexo,
+    beneficiarios_univ_afetados,
+    qtd_guias_atendimentos,
+    custo_total,
+    custo_medio_evento,
+    DENSE_RANK() OVER (ORDER BY custo_total_da_cidade DESC) AS ranking_custo_cidade
+FROM resultado_com_custo_cidade
+ORDER BY 
+    ranking_custo_cidade ASC, 
+    custo_total DESC</sql>
+    <limit>0</limit>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <connection>Cn_Oracle_Afrafep</connection>
+    <lookup/>
+    <sql_from_file/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>304</xloc>
+      <yloc>128</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableOutput</type>
+    <name>fato_despesa_assist_cidade_sexo</name>
+    <connection>cn_dw_afrafep</connection>
+    <schema>public</schema>
+    <table>fato_despesa_assist_cidade_sexo</table>
+    <commit>1000</commit>
+    <truncate>Y</truncate>
+    <only_when_have_rows>N</only_when_have_rows>
+    <ignore_errors>N</ignore_errors>
+    <use_batch>Y</use_batch>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_field/>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <tablename_in_table>Y</tablename_in_table>
+    <return_keys>N</return_keys>
+    <return_field/>
+    <specify_fields>Y</specify_fields>
+    <auto_update_table_structure>N</auto_update_table_structure>
+    <always_drop_and_recreate>N</always_drop_and_recreate>
+    <add_columns>N</add_columns>
+    <drop_columns>N</drop_columns>
+    <change_column_types>N</change_column_types>
+    <fields>
+      <field>
+        <stream_name>CIDADE</stream_name>
+        <column_name>CIDADE</column_name>
+      </field>
+      <field>
+        <stream_name>UF</stream_name>
+        <column_name>UF</column_name>
+      </field>
+      <field>
+        <stream_name>FL_SEXO</stream_name>
+        <column_name>FL_SEXO</column_name>
+      </field>
+      <field>
+        <stream_name>BENEFICIARIOS_UNIV_AFETADOS</stream_name>
+        <column_name>BENEFICIARIOS_UNIV_AFETADOS</column_name>
+      </field>
+      <field>
+        <stream_name>QTD_GUIAS_ATENDIMENTOS</stream_name>
+        <column_name>QTD_GUIAS_ATENDIMENTOS</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TOTAL</stream_name>
+        <column_name>CUSTO_TOTAL</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_MEDIO_EVENTO</stream_name>
+        <column_name>CUSTO_MEDIO_EVENTO</column_name>
+      </field>
+      <field>
+        <stream_name>RANKING_CUSTO_CIDADE</stream_name>
+        <column_name>RANKING_CUSTO_CIDADE</column_name>
+      </field>
+    </fields>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>672</xloc>
+      <yloc>128</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableInput</type>
+    <name>export_fato_despesa_assist_faixa_etaria</name>
+    <sql>WITH base_idade AS (
+    SELECT 
+    	cd_usuario,
+        TRUNC(MONTHS_BETWEEN(TRUNC(SYSDATE), dt_nascimento) / 12) AS idade,
+        fl_sexo,
+        nu_cgc_cpf,
+        nu_guia_atendimento,
+        vl_procedimento_p
+    FROM bi.tb_consolidacao_despesa
+    WHERE dt_producao >= TRUNC(ADD_MONTHS(SYSDATE, -12), 'MM')
+      AND cd_plano IN (50, 60, 9999)
+      AND fl_tipo_autorizacao &lt;&gt; 'R'
+      AND vl_procedimento_p > 0
+),
+base_faixa AS (
+    SELECT 
+    	cd_usuario,
+        CASE 
+            WHEN idade BETWEEN 0 AND 9   THEN '0 - 9 crianças'
+            WHEN idade BETWEEN 10 AND 19 THEN '10 - 19 Adolescentes'
+            WHEN idade BETWEEN 20 AND 29 THEN '20 - 29 Adultos Faixa I'
+            WHEN idade BETWEEN 30 AND 39 THEN '30 - 39 Adultos Faixa II'
+            WHEN idade BETWEEN 40 AND 49 THEN '40 - 49 Adultos Faixa III'
+            WHEN idade BETWEEN 50 AND 59 THEN '50 - 59 Adultos Faixa IV'
+            WHEN idade BETWEEN 60 AND 69 THEN '60 - 69 Idoso Faixa I'
+            WHEN idade BETWEEN 70 AND 79 THEN '70 - 79 Idoso Faixa II'
+            WHEN idade BETWEEN 80 AND 89 THEN '80 - 89 Idoso Faixa III'
+            WHEN idade BETWEEN 90 AND 99 THEN '90 - 99 Idoso Faixa IV'
+            ELSE '>= 100 Idoso Faixa V'
+        END AS ds_faixa_etaria,
+        fl_sexo,
+        nu_cgc_cpf,
+        nu_guia_atendimento,
+        vl_procedimento_p
+    FROM base_idade
+),
+resultado_agrupado AS (
+    SELECT
+        ds_faixa_etaria,
+        fl_sexo,
+        COUNT(DISTINCT cd_usuario) AS beneficiarios_univ_afetados,
+        COUNT(nu_guia_atendimento) AS qtd_atendimentos,
+        SUM(vl_procedimento_p) AS custo_total,
+        ROUND(SUM(vl_procedimento_p) / NULLIF(COUNT(DISTINCT nu_guia_atendimento), 0), 2) AS custo_medio_evento
+    FROM base_faixa
+    GROUP BY
+        ds_faixa_etaria,
+        fl_sexo
+)
+SELECT
+    ds_faixa_etaria,
+    fl_sexo,
+    beneficiarios_univ_afetados,
+    qtd_atendimentos,
+    custo_total,
+    custo_medio_evento,
+    DENSE_RANK() OVER (ORDER BY custo_total DESC) AS ranking_custo_geral
+FROM resultado_agrupado
+ORDER BY 
+    ranking_custo_geral ASC</sql>
+    <limit>0</limit>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <connection>Cn_Oracle_Afrafep</connection>
+    <lookup/>
+    <sql_from_file/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>304</xloc>
+      <yloc>208</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableOutput</type>
+    <name>fato_despesa_assist_faixa_etaria</name>
+    <connection>cn_dw_afrafep</connection>
+    <schema>public</schema>
+    <table>fato_despesa_assist_faixa_etaria</table>
+    <commit>1000</commit>
+    <truncate>Y</truncate>
+    <only_when_have_rows>N</only_when_have_rows>
+    <ignore_errors>N</ignore_errors>
+    <use_batch>Y</use_batch>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_field/>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <tablename_in_table>Y</tablename_in_table>
+    <return_keys>N</return_keys>
+    <return_field/>
+    <specify_fields>Y</specify_fields>
+    <auto_update_table_structure>N</auto_update_table_structure>
+    <always_drop_and_recreate>N</always_drop_and_recreate>
+    <add_columns>N</add_columns>
+    <drop_columns>N</drop_columns>
+    <change_column_types>N</change_column_types>
+    <fields>
+      <field>
+        <stream_name>DS_FAIXA_ETARIA</stream_name>
+        <column_name>DS_FAIXA_ETARIA</column_name>
+      </field>
+      <field>
+        <stream_name>FL_SEXO</stream_name>
+        <column_name>FL_SEXO</column_name>
+      </field>
+      <field>
+        <stream_name>BENEFICIARIOS_UNIV_AFETADOS</stream_name>
+        <column_name>BENEFICIARIOS_UNIV_AFETADOS</column_name>
+      </field>
+      <field>
+        <stream_name>QTD_ATENDIMENTOS</stream_name>
+        <column_name>QTD_ATENDIMENTOS</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TOTAL</stream_name>
+        <column_name>CUSTO_TOTAL</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_MEDIO_EVENTO</stream_name>
+        <column_name>CUSTO_MEDIO_EVENTO</column_name>
+      </field>
+      <field>
+        <stream_name>RANKING_CUSTO_GERAL</stream_name>
+        <column_name>RANKING_CUSTO_GERAL</column_name>
+      </field>
+    </fields>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>672</xloc>
+      <yloc>208</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableInput</type>
+    <name>export_fato_despesa_assist_faixa_etaria_tipo_atend</name>
+    <sql>WITH base_idade AS (
+    SELECT 
+        TRUNC(MONTHS_BETWEEN(TRUNC(SYSDATE), dt_nascimento) / 12) AS idade,
+        CASE 
+            WHEN UPPER(TRIM(ds_tipo_atendimento_tiss)) IN ('CONSULTA ELETIVA', 'CONSULTA') THEN 'CONSULTA'
+            WHEN UPPER(TRIM(ds_tipo_atendimento_tiss)) LIKE 'PRONTO SOCORRO%' THEN 'PRONTO SOCORRO'
+            ELSE UPPER(TRIM(ds_tipo_atendimento_tiss))
+        END AS ds_tipo_atendimento_tiss,
+        vl_procedimento_p
+    FROM bi.tb_consolidacao_despesa
+    WHERE dt_producao >= TRUNC(ADD_MONTHS(SYSDATE, -12), 'MM')
+      AND cd_plano IN (50, 60, 9999)
+      AND fl_tipo_autorizacao &lt;&gt; 'R'
+      AND vl_procedimento_p > 0
+),
+base_faixa AS (
+    SELECT 
+        CASE 
+            WHEN idade BETWEEN 0 AND 9   THEN '0 - 9 crianças'
+            WHEN idade BETWEEN 10 AND 19 THEN '10 - 19 Adolescentes'
+            WHEN idade BETWEEN 20 AND 29 THEN '20 - 29 Adultos Faixa I'
+            WHEN idade BETWEEN 30 AND 39 THEN '30 - 39 Adultos Faixa II'
+            WHEN idade BETWEEN 40 AND 49 THEN '40 - 49 Adultos Faixa III'
+            WHEN idade BETWEEN 50 AND 59 THEN '50 - 59 Adultos Faixa IV'
+            WHEN idade BETWEEN 60 AND 69 THEN '60 - 69 Idoso Faixa I'
+            WHEN idade BETWEEN 70 AND 79 THEN '70 - 79 Idoso Faixa II'
+            WHEN idade BETWEEN 80 AND 89 THEN '80 - 89 Idoso Faixa III'
+            WHEN idade BETWEEN 90 AND 99 THEN '90 - 99 Idoso Faixa IV'
+            ELSE '>= 100 Idoso Faixa V'
+        END AS ds_faixa_etaria,
+        ds_tipo_atendimento_tiss,
+        vl_procedimento_p
+    FROM base_idade
+)
+SELECT 
+    ds_faixa_etaria,
+    ROUND(NVL(custo_consulta, 0),2) AS custo_consulta,
+    ROUND(NVL(custo_peq_atendimento, 0),2) AS custo_peq_atendimento,
+    ROUND(NVL(custo_quimioterapia, 0),2) AS custo_quimioterapia,
+    ROUND(NVL(custo_exames, 0),2) AS custo_exames,
+    ROUND(NVL(custo_pronto_socorro, 0),2) AS custo_pronto_socorro,
+    ROUND(NVL(custo_terapias, 0),2) AS custo_terapias,
+    ROUND(NVL(custo_radioterapia, 0),2) AS custo_radioterapia,
+    ROUND(NVL(custo_remocao, 0),2) AS custo_remocao,
+    ROUND(NVL(custo_peq_cirurgia, 0),2) AS custo_peq_cirurgia,
+    ROUND(NVL(custo_sadt_internado, 0),2) AS custo_sadt_internado,
+    ROUND(NVL(custo_atend_domiciliar, 0),2) AS custo_atend_domiciliar,
+    ROUND(NVL(custo_trs, 0),2) AS custo_trs,
+    ROUND(NVL(custo_conta_hospitalar, 0),2) AS custo_conta_hospitalar,
+    ROUND((NVL(custo_consulta, 0) + NVL(custo_peq_atendimento, 0) + NVL(custo_quimioterapia, 0) + 
+    NVL(custo_exames, 0) + NVL(custo_pronto_socorro, 0) + NVL(custo_terapias, 0) + 
+    NVL(custo_radioterapia, 0) + NVL(custo_remocao, 0) + NVL(custo_peq_cirurgia, 0) + 
+    NVL(custo_sadt_internado, 0) + NVL(custo_atend_domiciliar, 0) + NVL(custo_trs, 0) + 
+    NVL(custo_conta_hospitalar, 0)),2) AS custo_total_faixa
+FROM base_faixa
+PIVOT (
+    SUM(vl_procedimento_p) 
+    FOR ds_tipo_atendimento_tiss IN (
+        'CONSULTA' AS custo_consulta,
+        'PEQUENO ATENDIMENTO (SUTURA, GESSO E OUTROS)' AS custo_peq_atendimento,
+        'QUIMIOTERAPIA' AS custo_quimioterapia,
+        'EXAMES' AS custo_exames,
+        'PRONTO SOCORRO' AS custo_pronto_socorro,
+        'TERAPIAS' AS custo_terapias,
+        'RADIOTERAPIA' AS custo_radioterapia,
+        'REMOÇÃO' AS custo_remocao,
+        'PEQUENA CIRURGIA' AS custo_peq_cirurgia,
+        'SADT INTERNADO' AS custo_sadt_internado,
+        'ATENDIMENTO DOMICILIAR' AS custo_atend_domiciliar,
+        'TERAPIA RENAL SUBSTITUTIVA (TRS)' AS custo_trs,
+        'CONTA HOSPITALAR' AS custo_conta_hospitalar
+    )
+)
+ORDER BY ds_faixa_etaria ASC</sql>
+    <limit>0</limit>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <connection>Cn_Oracle_Afrafep</connection>
+    <lookup/>
+    <sql_from_file/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>304</xloc>
+      <yloc>288</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <transform>
+    <type>TableOutput</type>
+    <name>fato_despesa_assist_faixa_etaria_tipo_atend</name>
+    <connection>cn_dw_afrafep</connection>
+    <schema>public</schema>
+    <table>fato_despesa_assist_faixa_etaria_tipo_atend</table>
+    <commit>1000</commit>
+    <truncate>Y</truncate>
+    <only_when_have_rows>N</only_when_have_rows>
+    <ignore_errors>N</ignore_errors>
+    <use_batch>Y</use_batch>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_field/>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <tablename_in_table>Y</tablename_in_table>
+    <return_keys>N</return_keys>
+    <return_field/>
+    <specify_fields>Y</specify_fields>
+    <auto_update_table_structure>N</auto_update_table_structure>
+    <always_drop_and_recreate>N</always_drop_and_recreate>
+    <add_columns>N</add_columns>
+    <drop_columns>N</drop_columns>
+    <change_column_types>N</change_column_types>
+    <fields>
+      <field>
+        <stream_name>DS_FAIXA_ETARIA</stream_name>
+        <column_name>DS_FAIXA_ETARIA</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_CONSULTA</stream_name>
+        <column_name>CUSTO_CONSULTA</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_PEQ_ATENDIMENTO</stream_name>
+        <column_name>CUSTO_PEQ_ATENDIMENTO</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_QUIMIOTERAPIA</stream_name>
+        <column_name>CUSTO_QUIMIOTERAPIA</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_EXAMES</stream_name>
+        <column_name>CUSTO_EXAMES</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_PRONTO_SOCORRO</stream_name>
+        <column_name>CUSTO_PRONTO_SOCORRO</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TERAPIAS</stream_name>
+        <column_name>CUSTO_TERAPIAS</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_RADIOTERAPIA</stream_name>
+        <column_name>CUSTO_RADIOTERAPIA</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_REMOCAO</stream_name>
+        <column_name>CUSTO_REMOCAO</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_PEQ_CIRURGIA</stream_name>
+        <column_name>CUSTO_PEQ_CIRURGIA</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_SADT_INTERNADO</stream_name>
+        <column_name>CUSTO_SADT_INTERNADO</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_ATEND_DOMICILIAR</stream_name>
+        <column_name>CUSTO_ATEND_DOMICILIAR</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TRS</stream_name>
+        <column_name>CUSTO_TRS</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_CONTA_HOSPITALAR</stream_name>
+        <column_name>CUSTO_CONTA_HOSPITALAR</column_name>
+      </field>
+      <field>
+        <stream_name>CUSTO_TOTAL_FAIXA</stream_name>
+        <column_name>CUSTO_TOTAL_FAIXA</column_name>
+      </field>
+    </fields>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+    <GUI>
+      <xloc>672</xloc>
+      <yloc>288</yloc>
+    </GUI>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+  </transform>
+  <order>
+    <hop>
+      <from>export_fato_despesa_assist_cidade_sexo_faixa_etaria</from>
+      <to>fato_despesa_assist_cidade_sexo_faixa_etaria</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>export_fato_despesa_assist_cidade_sexo</from>
+      <to>fato_despesa_assist_cidade_sexo</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>export_fato_despesa_assist_faixa_etaria</from>
+      <to>fato_despesa_assist_faixa_etaria</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>export_fato_despesa_assist_faixa_etaria_tipo_atend</from>
+      <to>fato_despesa_assist_faixa_etaria_tipo_atend</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <notepads/>
+  <attributes/>
+  <transform_error_handling/>
+</pipeline>
