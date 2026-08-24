@@ -1,0 +1,15 @@
+{
+  "virtualPath": "",
+  "executionInfoLocation": {
+    "remote-location": {
+      "server": "AFRAFEP",
+      "pluginName": "Remote location",
+      "pluginId": "remote-location",
+      "location": ""
+    }
+  },
+  "dataLoggingDelay": "2000",
+  "name": "remote-audit",
+  "description": "",
+  "dataLoggingInterval": "5000"
+}
